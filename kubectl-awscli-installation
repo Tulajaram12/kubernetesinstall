@@ -9,6 +9,7 @@ sudo snap install aws-cli --classic
 aws --version
 
 ##Now Create an IAM Role with below permission to attach to the ec2 so that the EC2 can access kubernetes cluster
+MAKE SURE U CREATE THE ROLE WITH NAME WHICH CAN BE FURTHER USE IN AWS-AUTH CONFIGMAP
 {
   "Version": "2012-10-17",
   "Statement": [
