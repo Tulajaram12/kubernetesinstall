@@ -1,0 +1,33 @@
+curl -o alb_iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_po
+licy.json
+
+Add this below policy to your EC2 Instance IAM Role
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "iam:CreatePolicy",
+            "Resource": "*"
+        }
+    ]
+}
+
+
+aws iam create-policy \
+  --policy-name albPolicy \
+  --policy-document file://alb_iam_policy.json
+
+
+eksctl create iamserviceaccount \
+  --cluster 04cluster \
+  --region ap-southeast-2 \
+  --namespace kube-system \
+  --name aws-load-balancer-controller \
+  --attach-policy-arn arn:aws:iam::484468819850:policy/albPolicy \
+  --override-existing-serviceaccounts \
+  --approve
+
+
+
+
