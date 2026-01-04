@@ -2,12 +2,53 @@ curl -o alb_iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aw
 licy.json
 
 Add this below policy to your EC2 Instance IAM Role
+
+1) Create Policy with name IAM Policy and attach it to the EC2 IAM ROLE
 {
     "Version": "2012-10-17",
     "Statement": [
         {
+            "Sid": "EKSIAMServiceAccount",
             "Effect": "Allow",
-            "Action": "iam:CreatePolicy",
+            "Action": [
+                "iam:CreateOpenIDConnectProvider",
+                "iam:GetOpenIDConnectProvider",
+                "iam:TagOpenIDConnectProvider",
+                "iam:ListOpenIDConnectProviders",
+                "iam:CreatePolicy",
+                "iam:CreateRole",
+                "iam:DeleteRole",
+                "iam:PassRole",
+                "iam:UpdateAssumeRolePolicy",
+                "iam:AttachRolePolicy",
+                "iam:DetachRolePolicy",
+                "iam:TagRole",
+                "iam:GetRole"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+
+
+Create Another Policy with name Cloudformation stack and attach it to the role EC2
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Statement1",
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:ListStacks",
+                "cloudformation:CreateStack",
+                "cloudformation:DescribeStacks",
+                "cloudformation:DescribeStackResources",
+                "cloudformation:UpdateStack",
+                "cloudformation:DeleteStack",
+                "cloudformation:DescribeStackEvents",
+                "cloudformation:UpdateTerminationProtection"
+            ],
             "Resource": "*"
         }
     ]
@@ -19,6 +60,9 @@ aws iam create-policy \
   --policy-document file://alb_iam_policy.json
 
 
+eksctl utils associate-iam-oidc-provider   --region ap-southeast-2   --cluster 04cluster   --approve
+
+
 eksctl create iamserviceaccount \
   --cluster 04cluster \
   --region ap-southeast-2 \
@@ -28,6 +72,16 @@ eksctl create iamserviceaccount \
   --override-existing-serviceaccounts \
   --approve
 
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=cluster3 \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set region=ap-southeast-2 \
+  --set vpcId=$(aws eks describe-cluster --name cluster3 --query "cluster.resourcesVpcConfig.vpcId" --output text)
 
 
 
