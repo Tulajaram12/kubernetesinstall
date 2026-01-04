@@ -29,6 +29,10 @@ MAKE SURE U CREATE THE ROLE WITH NAME WHICH CAN BE FURTHER USE IN AWS-AUTH CONFI
 sudo useradd devops
 sudo mkdir /home/devops
 sudo chown devops:devops /home/devops
+sudo su
+sudo visudo
+ADD BELOW LINE UNDER ROOT PRIVILEGE SPECIFICATION
+devops  ALL=(ALL:ALL) NOPASSWD: ALL
 
 sudo su devops
 aws eks update-kubeconfig \
