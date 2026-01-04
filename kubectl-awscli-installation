@@ -1,0 +1,30 @@
+sudo su -
+
+##kubectl Installation
+sudo snap install kubectl --classic
+kubectl version --client
+
+##awscli
+sudo snap install aws-cli --classic
+aws --version
+
+##Now Create an IAM Role with below permission to attach to the ec2 so that the EC2 can access kubernetes cluster
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EKSReadAccess",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeCluster",
+        "eks:ListClusters",
+        "eks:AccessKubernetesApi"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+
+
+
+
