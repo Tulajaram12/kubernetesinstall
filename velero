@@ -1,0 +1,35 @@
+Velero
+curl -L https://github.com/vmware-tanzu/velero/releases/download/v1.12.0/velero-v1.12.0-linux-amd64.tar.gz | tar -xz
+sudo mv velero-v1.12.0-linux-amd64/velero /usr/local/bin/
+
+Make sure the Role has access for creation of the s3 bucket
+aws s3api create-bucket   --bucket my-velero-new2backups   --region ap-southeast-2   --create-bucket-configuration LocationConstraint=ap-southeast-2
+
+Store the Access Key and Secret key in credentials-velero
+[default]
+aws_access_key_id=XXXXXXXXXXX
+aws_secret_access_key=XXXXXXXXX
+
+Install the plugin
+velero install \
+  --provider aws \
+  --plugins velero/velero-plugin-for-aws:v1.8.0 \
+  --bucket my-velero-new2backups \
+  --backup-location-config region=ap-southeast-2 \
+  --snapshot-location-config region=ap-southeast-2 \
+  --secret-file ./credentials-velero
+
+Take the backup
+velero backup create my-backup
+
+U can even schedule the backup
+velero schedule create daily-backup --schedule "0 2 * * *"
+
+
+
+
+How to Restore the Backup
+velero restore create --from-backup my-backup
+
+
+    
