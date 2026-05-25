@@ -1,0 +1,194 @@
+##Change these values
+export CLUSTER_NAME=dev-eks-cluster
+export AWS_REGION=eu-north-1
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+echo $CLUSTER_NAME
+echo $AWS_REGION
+echo $AWS_ACCOUNT_ID
+
+eksctl utils associate-iam-oidc-provider \
+  --region $AWS_REGION \
+  --cluster $CLUSTER_NAME \
+  --approve
+
+aws eks describe-cluster \
+  --name $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --query "cluster.identity.oidc.issuer" \
+  --output text
+
+kubectl create namespace karpenter
+
+export KARPENTER_VERSION="1.12.1"
+curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml -o cloudformation.yaml
+
+aws cloudformation deploy \
+  --stack-name Karpenter-${CLUSTER_NAME} \
+  --template-file cloudformation.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides ClusterName=${CLUSTER_NAME}
+
+export OIDC_ENDPOINT=$(aws eks describe-cluster \
+    --name $CLUSTER_NAME \
+    --region $AWS_REGION \
+    --query "cluster.identity.oidc.issuer" \
+    --output text | sed 's#https://##')
+
+cat <<EOF > karpenter-trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::$AWS_ACCOUNT_ID:oidc-provider/$OIDC_ENDPOINT"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "$OIDC_ENDPOINT:sub": "system:serviceaccount:karpenter:karpenter",
+          "$OIDC_ENDPOINT:aud": "sts.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+aws iam list-policies --scope Local \
+  --query "Policies[?contains(PolicyName, 'Karpenter')].[PolicyName,Arn]" \
+  --output table
+
+
+aws iam attach-role-policy \
+  --role-name KarpenterControllerRole-$CLUSTER_NAME \
+  --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/KarpenterControllerNodeLifecyclePolicy-$CLUSTER_NAME
+
+aws iam attach-role-policy \
+  --role-name KarpenterControllerRole-$CLUSTER_NAME \
+  --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/KarpenterControllerIAMIntegrationPolicy-$CLUSTER_NAME
+
+aws iam attach-role-policy \
+  --role-name KarpenterControllerRole-$CLUSTER_NAME \
+  --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/KarpenterControllerInterruptionPolicy-$CLUSTER_NAME
+
+aws iam attach-role-policy \
+  --role-name KarpenterControllerRole-$CLUSTER_NAME \
+  --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/KarpenterControllerResourceDiscoveryPolicy-$CLUSTER_NAME
+
+aws iam attach-role-policy \
+  --role-name KarpenterControllerRole-$CLUSTER_NAME \
+  --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/KarpenterControllerZonalShiftPolicy-$CLUSTER_NAME
+
+aws iam attach-role-policy \
+  --role-name KarpenterControllerRole-$CLUSTER_NAME \
+  --policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/KarpenterControllerEKSIntegrationPolicy-$CLUSTER_NAME
+
+
+
+helm repo add karpenter https://charts.karpenter.sh
+helm repo update
+
+
+helm upgrade --install karpenter-crd oci://public.ecr.aws/karpenter/karpenter-crd \
+  --namespace karpenter \
+  --create-namespace
+
+helm upgrade --install karpenter \
+oci://public.ecr.aws/karpenter/karpenter \
+--namespace karpenter \
+--create-namespace \
+--set settings.clusterName=$CLUSTER_NAME \
+--set settings.clusterEndpoint=$(aws eks describe-cluster \
+    --name $CLUSTER_NAME \
+    --region $AWS_REGION \
+    --query "cluster.endpoint" \
+    --output text) \
+--set serviceAccount.create=true \
+--set serviceAccount.name=karpenter \
+--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="arn:aws:iam::$AWS_ACCOUNT_ID:role/KarpenterControllerRole-$CLUSTER_NAME" \
+--set settings.interruptionQueue="" \
+--wait
+
+aws ec2 describe-subnets \
+  --filters "Name=tag:karpenter.sh/discovery,Values=$CLUSTER_NAME"
+
+
+
+
+NodeClass.yaml
+
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: AL2023
+
+  role: KarpenterNodeRole-dev-eks-cluster
+
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: dev-eks-cluster
+
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: dev-eks-cluster
+
+  amiSelectorTerms:
+    - alias: al2023@latest
+
+
+
+
+Nodepool.yaml
+
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            - t3.large
+            - t3.xlarge
+            - t3.2xlarge
+            - m5.large
+            - m5.xlarge
+
+  limits:
+    cpu: 100
+
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30s
+
+
+
+
+
+
+
+
